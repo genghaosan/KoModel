@@ -1,4 +1,4 @@
-# Python 缓存与构建产物
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -6,25 +6,23 @@ dist/
 build/
 wheels/
 
-# 虚拟环境
+# Virtual environment
 .venv/
 
-# Ollama 模型（自动下载，几个GB）
+# Ollama model blobs (auto-downloaded, several GB)
 models/
 
-# LanceDB 向量数据库（自动生成）
+# LanceDB vector database files (auto-generated)
 data/
 
-# 压缩包和临时目录
-*.zip
-KoModel/
-
-# 前端 node_modules 和构建产物
-frontend/node_modules/
-frontend/dist/
-
-# Vite 构建产物（自动生成）
-static/assets/
-
-# 要求文档（项目规范和实验报告，不推送）
+# Project requirement docs (binary, not source code)
 要求/
+
+# Backup files and archives
+KoModel/
+KoModel.zip
+models.zip
+*.bak
+
+# Generated build artifacts
+static/assets/

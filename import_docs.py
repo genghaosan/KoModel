@@ -5,6 +5,7 @@
 用法: python import_docs.py
 """
 import os
+import re
 import subprocess
 from services.lancedb_service import lancedb_service
 
@@ -29,10 +30,15 @@ def convert_to_text(filepath: str) -> str:
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout
-        # ponytail: fallback to stderr if stdout is empty
-        if result.stderr.strip():
-            print(f"  ⚠️ markitdown 警告 [{os.path.basename(filepath)}]: {result.stderr.strip()}")
-            return result.stderr
+        # ponytail: markitdown 返回非零退出码，说明转换失败，不返回 stderr
+        if result.returncode != 0:
+            print(f"  ❌ markitdown 转换失败 [{os.path.basename(filepath)}], returncode={result.returncode}")
+            if result.stderr.strip():
+                print(f"     错误信息: {result.stderr.strip()[:200]}")
+            return ""
+        # stdout 为空
+        print(f"  ⚠️ markitdown 输出为空 [{os.path.basename(filepath)}]，跳过")
+        return ""
     except FileNotFoundError:
         print("  ❌ 未找到 markitdown 命令，请确保已安装: pip install markitdown")
         raise
@@ -54,14 +60,35 @@ def chunk_text(text: str, source: str, max_chars: int = 500) -> list[dict]:
     # 按两个以上换行分割段落
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
 
+    # 合并子项（如（一）（二）（三）...）到前一段，避免"（四）就业状况；"变成独立片段
+    merged = []
+    for p in paragraphs:
+        if merged and re.match(r"^（[一二三四五六七八九十百]+）", p):
+            merged[-1] += "\n" + p
+        else:
+            merged.append(p)
+    paragraphs = merged
+
     chunks = []
+    current_chapter = ""
+    chapter_pattern = re.compile(r"^第[一二三四五六七八九十百千]+章")
+
     for para in paragraphs:
-        # 过滤太短或无意义的段落
-        if len(para) < 10:
+        if len(para.strip()) < 2:
             continue
+
+        # 检测是否为章节标题，更新当前章节并保留标题作为独立片段
+        if chapter_pattern.match(para):
+            current_chapter = para.strip()
+            chunks.append({"text": para, "source": source})
+            continue
+
+        # 给非章节段落加上章节前缀，方便检索定位
+        text_with_prefix = f"【{current_chapter}】{para}" if current_chapter else para
+
         # 如果段落太长，按句子或固定长度切分
-        if len(para) > max_chars:
-            # 按句号/换行切分
+        if len(text_with_prefix) > max_chars:
+            # 按句号/换行切分（用原始 para 切分，前缀固定在每个子块上）
             sentences = []
             for s in para.replace("\n", "。").split("。"):
                 s = s.strip()
@@ -70,16 +97,23 @@ def chunk_text(text: str, source: str, max_chars: int = 500) -> list[dict]:
             # 合并成不超过 max_chars 的块
             current = ""
             for s in sentences:
-                if len(current) + len(s) <= max_chars:
-                    current += s
+                candidate = current + s
+                if len(candidate) <= max_chars:
+                    current = candidate
                 else:
                     if current:
-                        chunks.append({"text": current.strip(), "source": source})
+                        chunks.append(
+                            {"text": f"【{current_chapter}】{current.strip()}" if current_chapter else current.strip(),
+                             "source": source}
+                        )
                     current = s
             if current:
-                chunks.append({"text": current.strip(), "source": source})
+                chunks.append(
+                    {"text": f"【{current_chapter}】{current.strip()}" if current_chapter else current.strip(),
+                     "source": source}
+                )
         else:
-            chunks.append({"text": para, "source": source})
+            chunks.append({"text": text_with_prefix, "source": source})
 
     return chunks
 
