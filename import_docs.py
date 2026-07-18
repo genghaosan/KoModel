@@ -1,6 +1,7 @@
 """
 知识库导入脚本
 支持多种文档格式: .txt .md .docx .pdf .xlsx .pptx 等
+办公文档（.docx/.pdf/.xlsx 等）会自动转为 .md 缓存到 docs/md/ 目录
 依赖: 全局 markitdown 命令 (https://github.com/microsoft/markitdown)
 用法: python import_docs.py
 """
@@ -10,46 +11,61 @@ import subprocess
 from services.lancedb_service import lancedb_service
 
 DOCS_DIR = "./docs"
-SUPPORTED_EXTENSIONS = {".txt", ".md", ".docx", ".pdf", ".xlsx", ".pptx", ".html", ".htm", ".csv"}
+MD_CACHE_DIR = os.path.join(DOCS_DIR, "md")
+OFFICE_EXTENSIONS = {".docx", ".pdf", ".xlsx", ".pptx", ".html", ".htm"}
 
 
-def convert_to_text(filepath: str) -> str:
-    """将各种格式的文件转换为纯文本"""
-    ext = os.path.splitext(filepath)[1].lower()
+def convert_office_to_md(filepath: str) -> str | None:
+    """
+    将办公文档转为 .md 缓存到 docs/md/ 目录
+    已转换过的直接返回缓存路径（重复检测）
+    返回 .md 文件路径，失败返回 None
+    """
+    basename = os.path.splitext(os.path.basename(filepath))[0]
+    md_path = os.path.join(MD_CACHE_DIR, basename + ".md")
 
-    # 纯文本类直接读取
-    if ext in {".txt", ".md", ".csv"}:
-        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-            return f.read()
+    # 重复检测：已转换过则跳过
+    if os.path.exists(md_path):
+        print(f"  ⏭️  已转换过，跳过: {basename}.md")
+        return md_path
 
-    # 使用 markitdown CLI 转换办公文档
+    print(f"  🔄 正在转换: {os.path.basename(filepath)}")
     try:
         result = subprocess.run(
             ["markitdown", filepath],
             capture_output=True, text=True, timeout=60
         )
         if result.returncode == 0 and result.stdout.strip():
-            return result.stdout
-        # ponytail: markitdown 返回非零退出码，说明转换失败，不返回 stderr
+            os.makedirs(MD_CACHE_DIR, exist_ok=True)
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(result.stdout)
+            print(f"  ✅ 转换完成: {basename}.md")
+            return md_path
+
         if result.returncode != 0:
             print(f"  ❌ markitdown 转换失败 [{os.path.basename(filepath)}], returncode={result.returncode}")
             if result.stderr.strip():
                 print(f"     错误信息: {result.stderr.strip()[:200]}")
-            return ""
-        # stdout 为空
+            return None
+
         print(f"  ⚠️ markitdown 输出为空 [{os.path.basename(filepath)}]，跳过")
-        return ""
+        return None
+
     except FileNotFoundError:
         print("  ❌ 未找到 markitdown 命令，请确保已安装: pip install markitdown")
         raise
     except subprocess.TimeoutExpired:
         print(f"  ⚠️ 转换超时 [{os.path.basename(filepath)}]，跳过")
-        return ""
+        return None
     except Exception as e:
         print(f"  ⚠️ 转换失败 [{os.path.basename(filepath)}]: {e}")
-        return ""
+        return None
 
-    return ""
+
+def read_text_file(filepath: str) -> str:
+    """直接读取 .txt/.md/.csv 文件"""
+    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+        return f.read()
 
 
 def chunk_text(text: str, source: str, max_chars: int = 500) -> list[dict]:
@@ -118,50 +134,101 @@ def chunk_text(text: str, source: str, max_chars: int = 500) -> list[dict]:
     return chunks
 
 
+def collect_import_files() -> list[str]:
+    """
+    收集需要导入的文件列表
+    逻辑：
+      1. docs/ 下的办公文档 → 转为 docs/md/*.md（已转换则跳过）
+      2. docs/md/ 下的 .md 文件 → 导入
+      3. docs/ 下的 .txt/.md/.csv → 直接导入
+    """
+    all_office = []
+    all_text = []
+
+    # 扫描 docs/（不递归进子目录）
+    if os.path.isdir(DOCS_DIR):
+        for f in os.listdir(DOCS_DIR):
+            fp = os.path.join(DOCS_DIR, f)
+            if not os.path.isfile(fp):
+                continue
+            ext = os.path.splitext(f)[1].lower()
+            if ext in OFFICE_EXTENSIONS:
+                all_office.append(fp)
+            elif ext in {".txt", ".md", ".csv"}:
+                all_text.append(fp)
+
+    # 1. 转换办公文档为 .md
+    os.makedirs(MD_CACHE_DIR, exist_ok=True)
+    for fp in sorted(all_office):
+        convert_office_to_md(fp)
+
+    # 2. 收集所有待导入的文件
+    import_files = []
+
+    # 从 docs/md/ 取已转换的 .md
+    cached_names = set()
+    if os.path.isdir(MD_CACHE_DIR):
+        for f in sorted(os.listdir(MD_CACHE_DIR)):
+            if f.lower().endswith(".md"):
+                import_files.append(os.path.join(MD_CACHE_DIR, f))
+                cached_names.add(f)
+
+    # 从 docs/ 取原始 .md/.txt/.csv
+    # 跳过已被 docs/md/ 缓存覆盖的同名文件，避免重复导入
+    for fp in sorted(all_text):
+        if os.path.basename(fp) not in cached_names:
+            import_files.append(fp)
+
+    return import_files
+
+
+def import_document(filepath: str) -> tuple[int, int]:
+    """导入单个文档，返回 (总片段数, 成功数)"""
+    filename = os.path.basename(filepath)
+    print(f"📄 处理: {filename}")
+
+    # 读取文本
+    ext = os.path.splitext(filepath)[1].lower()
+    text = read_text_file(filepath) if ext in {".txt", ".md", ".csv"} else ""
+    if not text:
+        print(f"  ⏭️  跳过（无内容）")
+        return 0, 0
+
+    # 分段
+    chunks = chunk_text(text, source=filename)
+    print(f"  ✂️  分为 {len(chunks)} 个知识片段")
+
+    # 导入
+    total = len(chunks)
+    success = 0
+    for chunk in chunks:
+        if lancedb_service.add_document(chunk["text"], chunk["source"]):
+            success += 1
+
+    print(f"  ✅ 完成")
+    return total, success
+
+
 def main():
     if not os.path.isdir(DOCS_DIR):
         print(f"❌ 目录不存在: {DOCS_DIR}")
         return
 
-    all_files = []
-    for root, dirs, files in os.walk(DOCS_DIR):
-        for f in files:
-            ext = os.path.splitext(f)[1].lower()
-            if ext in SUPPORTED_EXTENSIONS:
-                all_files.append(os.path.join(root, f))
+    import_files = collect_import_files()
 
-    if not all_files:
-        print(f"❌ 在 {DOCS_DIR} 中未找到支持的文档")
-        print(f"   支持的格式: {', '.join(SUPPORTED_EXTENSIONS)}")
+    if not import_files:
+        print(f"❌ 未找到任何可导入的文档")
         return
 
-    print(f"📂 找到 {len(all_files)} 个文档，开始导入...\n")
+    print(f"📂 找到 {len(import_files)} 个文档，开始导入...\n")
 
     total_chunks = 0
     success_chunks = 0
 
-    for filepath in sorted(all_files):
-        filename = os.path.basename(filepath)
-        print(f"📄 处理: {filename}")
-
-        # 1. 转换为文本
-        text = convert_to_text(filepath)
-        if not text:
-            print(f"  ⏭️  跳过（无内容）")
-            continue
-
-        # 2. 分段
-        chunks = chunk_text(text, source=filename)
-        print(f"  ✂️  分为 {len(chunks)} 个知识片段")
-
-        # 3. 逐个导入（直接写入 LanceDB，不需要启动 Flask）
-        for chunk in chunks:
-            ok = lancedb_service.add_document(chunk["text"], chunk["source"])
-            total_chunks += 1
-            if ok:
-                success_chunks += 1
-
-        print(f"  ✅ 完成")
+    for filepath in import_files:
+        t, s = import_document(filepath)
+        total_chunks += t
+        success_chunks += s
 
     print(f"\n{'='*40}")
     print(f"📊 导入完成！")

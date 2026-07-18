@@ -26,3 +26,6 @@ models.zip
 
 # Generated build artifacts
 static/assets/
+
+# Auto-converted markdown cache from office docs
+docs/md/
