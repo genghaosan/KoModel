@@ -3,58 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>本地知识库问答</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .container { width: 750px; max-width: 95%; background: white; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); overflow: hidden; }
-        .header { background: #1677ff; color: white; padding: 18px 24px; font-size: 20px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
-        .header-actions { display: flex; gap: 8px; }
-        .header-actions button { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 12px; border-radius: 12px; cursor: pointer; font-size: 13px; }
-        .header-actions button:hover { background: rgba(255,255,255,0.3); }
-        .chat-box { height: 480px; overflow-y: auto; padding: 16px 20px; background: #f9fafb; }
-        .message { margin-bottom: 16px; display: flex; flex-direction: column; }
-        .message.user { align-items: flex-end; }
-        .message.ai { align-items: flex-start; }
-        .bubble { max-width: 80%; padding: 10px 16px; border-radius: 18px; line-height: 1.6; word-wrap: break-word; white-space: pre-wrap; font-size: 15px; }
-        .user .bubble { background: #1677ff; color: white; border-bottom-right-radius: 4px; }
-        .ai .bubble { background: white; color: #333; border: 1px solid #e5e6eb; border-bottom-left-radius: 4px; }
-        .reference { font-size: 13px; color: #999; margin-top: 6px; padding: 8px 12px; background: #f0f0f0; border-radius: 8px; max-width: 85%; }
-        .reference summary { cursor: pointer; color: #666; font-weight: 500; }
-        .reference blockquote { margin: 4px 0; padding-left: 8px; border-left: 3px solid #1677ff; color: #555; font-style: italic; font-size: 12px; }
-        .input-area { display: flex; flex-direction: column; border-top: 1px solid #e5e6eb; padding: 12px 16px; background: white; gap: 8px; }
-        .input-row { display: flex; gap: 10px; }
-        .input-area input { flex: 1; padding: 10px 14px; border: 1px solid #d9d9d9; border-radius: 22px; outline: none; font-size: 15px; }
-        .input-area input:focus { border-color: #1677ff; }
-        .input-area button { padding: 10px 22px; background: #1677ff; color: white; border: none; border-radius: 22px; cursor: pointer; font-size: 15px; white-space: nowrap; }
-        .input-area button:hover { background: #4096ff; }
-        .input-area button:disabled { background: #a0c4ff; cursor: not-allowed; }
-        .loading { color: #999; font-size: 14px; padding: 8px 0; }
-        .cursor-blink { animation: blink 0.8s step-end infinite; }
-        @keyframes blink { 50% { opacity: 0; } }
-        .thinking { color: #999; font-size: 13px; font-style: italic; padding: 4px 0; }
-        .model-tag { font-size: 12px; color: #999; text-align: center; padding: 6px; }
-    </style>
+    <title>劳动法智能问答系统</title>
 </head>
 <body>
+
+<template id="app-template">
 <div class="container">
     <div class="header">
-        <span>📚 本地知识库问答</span>
+        <span>📚 劳动法智能问答系统</span>
         <div class="header-actions">
+            <button onclick="showStats()">📊 知识库</button>
             <button onclick="clearChat()">🗑️ 新对话</button>
         </div>
     </div>
     <div class="chat-box" id="chatBox"></div>
     <div class="input-area">
         <div class="input-row">
-            <input type="text" id="questionInput" placeholder="输入你的问题..." onkeydown="if(event.key==='Enter') sendQuestion()">
+            <input type="text" id="questionInput" placeholder="输入你的问题，例如：劳动法第十三条规定了什么？" onkeydown="if(event.key==='Enter') sendQuestion()">
             <button onclick="sendQuestion()" id="sendBtn">发送</button>
         </div>
+        <div class="hint">💡 试试问：劳动法第十三条内容是什么？ | 劳动法一共有多少条？ | 加班工资怎么算？</div>
     </div>
 </div>
+
+<!-- 知识库统计弹窗 -->
+<div id="statsModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="close" onclick="closeStats()">&times;</span>
+        <h3>📊 知识库状态</h3>
+        <div id="statsContent">加载中...</div>
+    </div>
+</div>
+</template>
+
 <script>
+(function mountTemplate() {
+    const tpl = document.getElementById('app-template');
+    if (tpl) {
+        document.body.appendChild(tpl.content.cloneNode(true));
+    }
+    setTimeout(() => {
+        appendMessage('ai', '你好！我是劳动法智能助手，可以帮你查询《中华人民共和国劳动法》的相关条文。请问有什么可以帮你的？');
+    }, 100);
+})();
+
 let conversationId = '';
 let isStreaming = false;
+
+async function showStats() {
+    try {
+        const resp = await fetch('/api/stats');
+        const data = await resp.json();
+        const content = document.getElementById('statsContent');
+        content.innerHTML = `
+            <p>📁 表名：${data.table_name || '-'}</p>
+            <p>📊 总记录数：${data.total_records || 0} 条</p>
+            <p>💾 存储路径：${data.db_path || '-'}</p>
+            ${data.error ? `<p style="color:red">错误：${data.error}</p>` : ''}
+        `;
+        document.getElementById('statsModal').style.display = 'block';
+    } catch (e) {
+        alert('获取统计信息失败');
+    }
+}
+
+function closeStats() {
+    document.getElementById('statsModal').style.display = 'none';
+}
 
 async function sendQuestion() {
     if (isStreaming) return;
@@ -63,16 +78,14 @@ async function sendQuestion() {
     const question = input.value.trim();
     if (!question) return;
 
-    // 显示用户消息
     appendMessage('user', question);
     input.value = '';
     isStreaming = true;
     document.getElementById('sendBtn').disabled = true;
 
-    // 创建 AI 消息占位
     const aiMsgDiv = createMessageDiv('ai');
     const bubble = aiMsgDiv.querySelector('.bubble');
-    bubble.innerHTML = '<span class="thinking">🤔 思考中<span class="cursor-blink">|</span></span>';
+    bubble.innerHTML = '<span class="thinking">🤔 正在检索相关法律条文<span class="cursor-blink">|</span></span>';
     document.getElementById('chatBox').appendChild(aiMsgDiv);
     scrollToBottom();
 
@@ -125,37 +138,21 @@ async function sendQuestion() {
 
                     if (data.token) {
                         fullAnswer += data.token;
-                        // 渲染：回答 + 引用
-                        let html = fullAnswer;
+                        let html = formatAnswer(fullAnswer);
 
-                        // 显示引用
                         if (references && references.length > 0) {
-                            let refHtml = '<details class="reference"><summary>📖 参考了 ' + references.length + ' 篇文档</summary>';
-                            references.forEach(ref => {
-                                const src = ref.source || '未知来源';
-                                refHtml += '<blockquote>【' + src + '】' + ref.text + '</blockquote>';
-                            });
-                            refHtml += '</details>';
-                            html += refHtml;
+                            html += formatReferences(references);
                         }
 
-                        // 添加闪烁光标表示还在生成
                         html += '<span class="cursor-blink">|</span>';
                         bubble.innerHTML = html;
                         scrollToBottom();
                     }
 
                     if (data.done) {
-                        // 最终渲染（去掉光标）
-                        let html = fullAnswer;
+                        let html = formatAnswer(fullAnswer);
                         if (references && references.length > 0) {
-                            let refHtml = '<details class="reference"><summary>📖 参考了 ' + references.length + ' 篇文档</summary>';
-                            references.forEach(ref => {
-                                const src = ref.source || '未知来源';
-                                refHtml += '<blockquote>【' + src + '】' + ref.text + '</blockquote>';
-                            });
-                            refHtml += '</details>';
-                            html += refHtml;
+                            html += formatReferences(references);
                         }
                         bubble.innerHTML = html;
                         scrollToBottom();
@@ -166,13 +163,62 @@ async function sendQuestion() {
             }
         }
     } catch (err) {
-        const lastBubble = document.querySelector('#chatBox .message:last-child .bubble');
-        if (lastBubble) lastBubble.textContent = '⚠️ 网络错误，请检查连接。';
+        bubble.textContent = '⚠️ 网络错误，请检查连接。';
     }
 
     isStreaming = false;
     document.getElementById('sendBtn').disabled = false;
     input.focus();
+}
+
+/**
+ * Markdown 渲染 + 中文内容过滤
+ */
+function formatAnswer(text) {
+    // 第一步：过滤模型幻觉产生的无意义英文单词
+    // 移除孤立的无意义英文单词（如 "perseus" 这种在中文文本中的英文）
+    text = text.replace(/([^\x00-\x7F])\s*[a-zA-Z]{5,}\s*([^\x00-\x7F])/g, '$1$2');
+    text = text.replace(/([^\x00-\x7F])[a-zA-Z]{3,}\s*([^\x00-\x7F])/g, '$1$2');
+
+    // 第二步：Markdown 渲染
+    let html = text
+        // 代码块 ```...```
+        .replace(/```([\s\S]*?)```/g, '<pre style="background:#f4f4f4;padding:10px;border-radius:6px;overflow-x:auto;font-size:13px;"><code>$1</code></pre>')
+        // 行内代码 `...`
+        .replace(/`([^`]+)`/g, '<code style="background:#f0f0f0;padding:2px 4px;border-radius:3px;font-size:13px;">$1</code>')
+        // 标题 ###
+        .replace(/###\s+(.*)/g, '<h4 style="margin:10px 0 6px;color:#222;font-size:16px;font-weight:600;">$1</h4>')
+        // 标题 ##
+        .replace(/##\s+(.*)/g, '<h3 style="margin:12px 0 8px;color:#1a1a1a;font-size:18px;font-weight:600;">$1</h3>')
+        // 标题 #
+        .replace(/#\s+(.*)/g, '<h2 style="margin:14px 0 10px;color:#111;font-size:20px;font-weight:600;">$1</h2>')
+        // 粗体 **...**
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        // 斜体 *...*
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        // 条款号高亮 第X条
+        .replace(/第([一二三四五六七八九十百千零\d]+)条/g, '<strong style="color:#1677ff">第$1条</strong>')
+        // 章节号高亮 第X章
+        .replace(/第([一二三四五六七八九十百千零\d]+)章/g, '<strong style="color:#1677ff">第$1章</strong>')
+        // 列表项 -
+        .replace(/^-\s+(.*)/gm, '<li style="margin-left:20px;margin-bottom:4px;list-style-type:disc;">$1</li>')
+        // 数字列表 1.
+        .replace(/^\d+\.\s+(.*)/gm, '<li style="margin-left:20px;margin-bottom:4px;list-style-type:decimal;">$1</li>')
+        // 换行
+        .replace(/\n/g, '<br>');
+
+    return html;
+}
+
+function formatReferences(refs) {
+    let html = '<details class="reference"><summary>📖 参考了 ' + refs.length + ' 篇文档</summary>';
+    refs.forEach((ref, i) => {
+        const src = ref.source || '未知来源';
+        const text = (ref.text || '').substring(0, 200);
+        html += `<blockquote><strong>[${i+1}] ${src}</strong><br>${text}${ref.text && ref.text.length > 200 ? '...' : ''}</blockquote>`;
+    });
+    html += '</details>';
+    return html;
 }
 
 function createMessageDiv(role) {
@@ -200,9 +246,49 @@ function scrollToBottom() {
 function clearChat() {
     conversationId = '';
     document.getElementById('chatBox').innerHTML = '';
-    // 重新显示欢迎语
-    appendMessage('ai', '你好！我是你的本地知识库助手，请问有什么可以帮助你的？');
+    appendMessage('ai', '你好！我是劳动法智能助手，可以帮你查询《中华人民共和国劳动法》的相关条文。请问有什么可以帮你的？');
 }
 </script>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+.container { width: 800px; max-width: 95%; background: white; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); overflow: hidden; }
+.header { background: #1677ff; color: white; padding: 18px 24px; font-size: 20px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+.header-actions { display: flex; gap: 8px; }
+.header-actions button { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px 14px; border-radius: 12px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+.header-actions button:hover { background: rgba(255,255,255,0.35); }
+.chat-box { height: 500px; overflow-y: auto; padding: 16px 20px; background: #f9fafb; }
+.message { margin-bottom: 16px; display: flex; flex-direction: column; }
+.message.user { align-items: flex-end; }
+.message.ai { align-items: flex-start; }
+.bubble { max-width: 85%; padding: 12px 18px; border-radius: 18px; line-height: 1.7; word-wrap: break-word; white-space: pre-wrap; font-size: 15px; }
+.user .bubble { background: #1677ff; color: white; border-bottom-right-radius: 4px; }
+.ai .bubble { background: white; color: #333; border: 1px solid #e5e6eb; border-bottom-left-radius: 4px; }
+.ai .bubble h2, .ai .bubble h3, .ai .bubble h4 { margin-top: 8px; margin-bottom: 6px; }
+.ai .bubble li { margin-bottom: 4px; }
+.ai .bubble pre { margin: 8px 0; }
+.reference { font-size: 13px; color: #666; margin-top: 10px; padding: 10px 14px; background: #f5f5f5; border-radius: 10px; max-width: 90%; }
+.reference summary { cursor: pointer; color: #1677ff; font-weight: 500; user-select: none; }
+.reference blockquote { margin: 6px 0; padding: 6px 10px; border-left: 3px solid #1677ff; background: #fafafa; color: #555; font-size: 12px; line-height: 1.5; border-radius: 0 4px 4px 0; }
+.input-area { display: flex; flex-direction: column; border-top: 1px solid #e5e6eb; padding: 14px 18px; background: white; gap: 8px; }
+.input-row { display: flex; gap: 10px; }
+.input-area input { flex: 1; padding: 12px 16px; border: 1px solid #d9d9d9; border-radius: 24px; outline: none; font-size: 15px; transition: border-color 0.2s; }
+.input-area input:focus { border-color: #1677ff; }
+.input-area button { padding: 12px 24px; background: #1677ff; color: white; border: none; border-radius: 24px; cursor: pointer; font-size: 15px; white-space: nowrap; transition: background 0.2s; }
+.input-area button:hover { background: #4096ff; }
+.input-area button:disabled { background: #a0c4ff; cursor: not-allowed; }
+.hint { font-size: 12px; color: #999; text-align: center; padding: 4px 0; }
+.cursor-blink { animation: blink 0.8s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.thinking { color: #999; font-size: 13px; font-style: italic; padding: 4px 0; }
+.modal { position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); display: flex; justify-content: center; align-items: center; }
+.modal-content { background: white; padding: 24px; border-radius: 12px; width: 400px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); }
+.close { float: right; font-size: 24px; cursor: pointer; color: #999; }
+.close:hover { color: #333; }
+#statsContent { margin-top: 16px; line-height: 2; color: #333; }
+#statsContent p { border-bottom: 1px solid #f0f0f0; padding: 4px 0; }
+</style>
+
 </body>
 </html>
